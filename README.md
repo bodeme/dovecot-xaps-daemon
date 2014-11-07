@@ -2,6 +2,8 @@
 iOS Push Email for Dovecot
 ==========================
 
+> Experimental Go implementation. Because I'm tired of Python.
+
 What is this?
 -------------
 
