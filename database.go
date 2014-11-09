@@ -1,5 +1,11 @@
 package main
 
+import (
+	"encoding/json"
+	"io/ioutil"
+	"os"
+)
+
 /*
 accounts: [
   { username: "stefan@arentz.ca",
@@ -21,7 +27,49 @@ type Account struct {
 }
 
 type database struct {
+	path     string
 	accounts map[string]*Account
+}
+
+func newDatabase() *database {
+	return &database{
+		path:     "",
+		accounts: map[string]*Account{},
+	}
+}
+
+func loadDatabase(path string) (*database, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return &database{
+				path:     "",
+				accounts: map[string]*Account{},
+			}, nil
+		} else {
+			return nil, err
+		}
+	}
+
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var accounts []Account
+	if err := json.Unmarshal(data, &accounts); err != nil {
+		return nil, err
+	}
+
+	db := &database{
+		path:     "",
+		accounts: map[string]*Account{},
+	}
+
+	for i := range accounts {
+		db.accounts[accounts[i].Username] = &accounts[i]
+	}
+
+	return db, nil
 }
 
 func (db *database) addRegistration(username, accountId, deviceToken string, mailboxes []string) error {

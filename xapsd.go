@@ -48,36 +48,43 @@ func parseCommand(s string) (command, error) {
 }
 
 type app struct {
-	db *database
+	cfg   config
+	topic string
+	db    *database
 }
 
-func (a *app) handleRegister(cmd command) error {
+func (a *app) handleRegister(cmd command) (string, error) {
 	if cmd.args["aps-subtopic"] != "com.apple.mobilemail" {
-		return ErrUnknownApsSubtopic
+		return "", ErrUnknownApsSubtopic
 	}
-	return a.db.addRegistration(cmd.args["dovecot-username"], cmd.args["aps-account-id"],
+	return a.topic, a.db.addRegistration(cmd.args["dovecot-username"], cmd.args["aps-account-id"],
 		cmd.args["aps-device-token"], []string{"INBOX"}) // cmd.args["dovecot-mailboxes"])
 }
 
-func (a *app) handleNotify(cmd command) error {
+func (a *app) handleNotify(cmd command) (string, error) {
 	for _, device := range a.db.findDevices(cmd.args["dovecot-username"], cmd.args["dovecot-mailbox"]) {
 		log.Printf("Sending notification for %s/%s to %s", cmd.args["dovecot-username"],
 			cmd.args["dovecot-mailbox"], device.AccountId)
 	}
-	return nil
+	return "", nil
 }
 
-func (a *app) handleUnknownCommand(cmd command) error {
-	return ErrUnknownCommand
-}
-
-func (a *app) dispatchCommand(cmd command) (string, error) {
+func (a *app) handleUnknownCommand(cmd command) (string, error) {
 	return "", ErrUnknownCommand
 }
 
-func (a *app) handleConnection(c net.Conn) {
-	log.Print("Processing connection: ", c)
+func (a *app) dispatchCommand(cmd command) (string, error) {
+	switch cmd.name {
+	case "NOTIFY":
+		return a.handleNotify(cmd)
+	case "REGISTER":
+		return a.handleRegister(cmd)
+	default:
+		return "", ErrUnknownCommand
+	}
+}
 
+func (a *app) handleConnection(c net.Conn) {
 	reader := bufio.NewReader(c)
 	writer := bufio.NewWriter(c)
 
@@ -89,7 +96,8 @@ func (a *app) handleConnection(c net.Conn) {
 			}
 			break
 		}
-		log.Print("Incoming: ", line)
+
+		line = strings.TrimSpace(line)
 
 		cmd, err := parseCommand(line)
 		if err != nil {
@@ -106,25 +114,32 @@ func (a *app) handleConnection(c net.Conn) {
 			}
 		}
 	}
-
-	log.Print("Done with connection: ", c)
 }
 
 func main() {
 
-	a := app{
-		db: &database{},
+	cfg := defaultConfig()
+
+	db, err := loadDatabase(cfg.database)
+	if err != nil {
+		log.Fatal("Could not load database: ", err)
 	}
 
-	l, err := net.Listen("unix", "/tmp/xapsd.sock")
+	a := app{
+		cfg:   cfg,
+		topic: "some.topic.name.from.the.cert",
+		db:    db,
+	}
+
+	l, err := net.Listen("unix", cfg.socket)
 	if err != nil {
 		log.Fatal("Cannot listen: ", err)
 		return
 	}
 
-	defer os.Remove("/tmp/xapsd.sock")
+	defer os.Remove(cfg.socket)
 
-	log.Print("Listening on /tmp/xapsd.sock")
+	log.Print("Listening on " + cfg.socket)
 
 	for {
 		c, err := l.Accept()
